@@ -266,31 +266,36 @@ class GlassRenderer {
         ? { w: el.parent.width, h: el.parent.height }
         : this.pageSize
 
-      const halfW = Math.max(1, Math.ceil(w / 2))
-      const halfH = Math.max(1, Math.ceil(h / 2))
+      // Bleed margin so rim displacement never samples past the blurred region
+      const margin = 28
+      const rw = w + margin * 2
+      const rh = h + margin * 2
+      const halfW = Math.max(1, Math.ceil(rw / 2))
+      const halfH = Math.max(1, Math.ceil(rh / 2))
       this.ensurePing(halfW, halfH)
 
-      // Pass 1: refract + downsample into ping.a
-      this.drawRefract(el, sourceTex, sourceSize, nested, this.ping.a, halfW, halfH)
+      // Pass 1: plain downsample of the source region (element + margin) → ping.a
+      this.drawSample(el, sourceTex, sourceSize, nested, this.ping.a, halfW, halfH, rw, rh)
 
-      // Dual Kawase ping-pong
-      const radius = Math.max(0, Math.min(30, ctrl.blurRadius ?? 5))
+      // Dual Kawase ping-pong (frost BEFORE displacement, matching the reference)
+      const radius = Math.max(0, Math.min(30, ctrl.blurRadius ?? 2))
       const blurScale = el.isButton
         ? ctrl.buttonBlurScale ?? 0.67
         : ctrl.containerBlurScale ?? 1.0
-      const passes = radius < 0.5 ? 0 : radius < 2 ? 2 : 4
+      const passes = radius < 0.5 ? 0 : radius < 3 ? 2 : 4
       let src = this.ping.a
       let dst = this.ping.b
       for (let i = 0; i < passes; i++) {
         const px = (0.5 + i) * radius * 0.3 * blurScale
-        this.drawKawase(src, dst, (px * halfW) / w, (px * halfH) / h)
+        this.drawKawase(src, dst, (px * halfW) / rw, (px * halfH) / rh)
         const tmp = src
         src = dst
         dst = tmp
       }
 
-      // Final: composite (blurred + tint + gradient + mask) into element FBO
-      this.drawComposite(el, src.tex, sourceTex, sourceSize, nested, entry, w, h)
+      // Final: composite — lens refraction on the blurred region, then
+      // tint + gradient + mask, into the element FBO
+      this.drawComposite(el, src.tex, sourceTex, sourceSize, nested, entry, w, h, margin, rw, rh)
     }
 
     // Blit every element FBO to its DOM canvas through the master buffer
@@ -419,55 +424,36 @@ class GlassRenderer {
 
   // ---------------------------------------------------------------- shaders
 
-  // Pass 1 — sample the source (page texture or parent FBO) with the shape's
-  // refraction offset, downsampled to half resolution.
-  drawRefract(el, sourceTex, sourceSize, nested, target, w, h) {
+  // Pass 1 — plain downsample of the source region (element + bleed margin)
+  // into half resolution. Refraction happens in the composite AFTER the blur
+  // (reference ordering: blur → displacement, so chroma stays crisp).
+  drawSample(el, sourceTex, sourceSize, nested, target, w, h, rw, rh) {
     const gl = this.gl
-    const ctrl = window.glassControls || {}
-    const program = this.program(
-      'refract',
-      this.vs(),
-      this.fsRefract()
-    )
+    const program = this.program('sample', this.vs(), this.fsSample())
     this.drawInto(target.fbo, w, h)
     gl.useProgram(program)
     this.bindQuad(program)
 
     const p = el.getPosition()
-    let originX, originY
+    let cx, cy
     if (nested) {
       const pp = el.parent.getPosition()
-      originX = p.x - pp.x + el.parent.width / 2
-      originY = p.y - pp.y + el.parent.height / 2
+      cx = p.x - pp.x + el.parent.width / 2
+      cy = p.y - pp.y + el.parent.height / 2
     } else {
-      originX = p.x + this.scrollX - this.scrollAtCapture.x
-      originY = p.y + this.scrollY - this.scrollAtCapture.y
+      cx = p.x + this.scrollX - this.scrollAtCapture.x
+      cy = p.y + this.scrollY - this.scrollAtCapture.y
     }
+    // Region top-left in source space (element center − half region)
+    const ox = cx - rw / 2
+    const oy = cy - rh / 2
 
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, sourceTex)
     gl.uniform1i(gl.getUniformLocation(program, 'u_source'), 0)
     gl.uniform2f(gl.getUniformLocation(program, 'u_sourceSize'), sourceSize.w, sourceSize.h)
-    gl.uniform2f(gl.getUniformLocation(program, 'u_resolution'), el.width, el.height)
-    gl.uniform2f(gl.getUniformLocation(program, 'u_origin'), originX, originY)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_borderRadius'), el.borderRadius)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_warp'), ctrl.warp || el.warp ? 1.0 : 0.0)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_edgeIntensity'), ctrl.edgeIntensity ?? 0.01)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_rimIntensity'), ctrl.rimIntensity ?? 0.05)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_baseIntensity'), ctrl.baseIntensity ?? 0.01)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_edgeDistance'), ctrl.edgeDistance ?? 0.15)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_rimDistance'), ctrl.rimDistance ?? 0.8)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_baseDistance'), ctrl.baseDistance ?? 0.1)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_cornerBoost'), ctrl.cornerBoost ?? 0.02)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_rippleEffect'), ctrl.rippleEffect ?? 0.1)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_rippleFrequency'), el.isButton ? 30.0 : 25.0)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_strength'), ctrl.lensStrength ?? 14)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_chroma'), ctrl.chroma ?? 0.4)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_edgeWidth'), ctrl.edgeDistance ?? 6)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_domeRadius'), ctrl.baseDistance ?? 1.2)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_glint'), ctrl.rimIntensity ?? 0.5)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_glintSharp'), ctrl.rimDistance ?? 4)
-
+    gl.uniform2f(gl.getUniformLocation(program, 'u_origin'), ox, oy)
+    gl.uniform2f(gl.getUniformLocation(program, 'u_regionSize'), rw, rh)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   }
 
@@ -486,8 +472,10 @@ class GlassRenderer {
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   }
 
-  // Pass 3 — composite blurred result with tint, sampled gradient and mask.
-  drawComposite(el, blurredTex, gradientTex, sourceSize, nested, entry, w, h) {
+  // Pass 3 — composite: lens refraction on the blurred region + tint +
+  // sampled gradient + shape mask. Chroma split happens here, AFTER the
+  // blur, so the fringing stays crisp (reference ordering).
+  drawComposite(el, blurredTex, gradientTex, sourceSize, nested, entry, w, h, margin, rw, rh) {
     const gl = this.gl
     const ctrl = window.glassControls || {}
     const program = this.program('composite', this.vs(), this.fsComposite())
@@ -524,13 +512,26 @@ class GlassRenderer {
     gl.uniform2f(gl.getUniformLocation(program, 'u_gradOrigin'), gradOriginX, gradOriginY)
     gl.uniform2f(gl.getUniformLocation(program, 'u_gradSize'), gradSizeW, gradSizeH)
     gl.uniform2f(gl.getUniformLocation(program, 'u_resolution'), el.width, el.height)
+    gl.uniform2f(gl.getUniformLocation(program, 'u_regionSize'), rw, rh)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_margin'), margin)
     gl.uniform1f(gl.getUniformLocation(program, 'u_borderRadius'), el.borderRadius)
     gl.uniform1f(gl.getUniformLocation(program, 'u_tintOpacity'), tint)
     gl.uniform1f(gl.getUniformLocation(program, 'u_isButton'), el.isButton ? 1.0 : 0.0)
     gl.uniform1f(gl.getUniformLocation(program, 'u_gradientMode'), el.isButton ? 0.0 : 1.0)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_glint'), ctrl.rimIntensity ?? 0.5)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_glintSharp'), ctrl.rimDistance ?? 4)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_vibrancy'), ctrl.vibrancy ?? 0.12)
+    // Lens model (Aave-style)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_warp'), ctrl.warp || el.warp ? 1.0 : 0.0)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_edgeIntensity'), ctrl.edgeIntensity ?? 1.0)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_baseIntensity'), ctrl.baseIntensity ?? 0.6)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_strength'), ctrl.lensStrength ?? 16)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_chroma'), ctrl.chroma ?? 0.3)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_edgeWidth'), ctrl.edgeDistance ?? 20)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_domeRadius'), ctrl.baseDistance ?? 1.2)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_glint'), ctrl.rimIntensity ?? 0.9)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_glintSharp'), ctrl.rimDistance ?? 2)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_cornerBoost'), ctrl.cornerBoost ?? 0.2)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_rippleEffect'), ctrl.rippleEffect ?? 0)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_rippleFrequency'), el.isButton ? 30.0 : 25.0)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_vibrancy'), ctrl.vibrancy ?? 0.15)
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   }
@@ -581,33 +582,69 @@ class GlassRenderer {
   `
   }
 
-  fsRefract() {
+  fsSample() {
     return `
     precision mediump float;
     uniform sampler2D u_source;
     uniform vec2 u_sourceSize;
-    uniform vec2 u_resolution;
     uniform vec2 u_origin;
+    uniform vec2 u_regionSize;
+    varying vec2 v_texcoord;
+    void main() {
+      vec2 uv = (u_origin + v_texcoord * u_regionSize) / u_sourceSize;
+      gl_FragColor = texture2D(u_source, uv);
+    }
+  `
+  }
+
+  fsKawase() {
+    return `
+    precision mediump float;
+    uniform sampler2D u_texture;
+    uniform vec2 u_offset;
+    varying vec2 v_texcoord;
+    void main() {
+      vec2 o = u_offset;
+      vec4 c = texture2D(u_texture, v_texcoord + o)
+             + texture2D(u_texture, v_texcoord - o)
+             + texture2D(u_texture, v_texcoord + vec2(o.x, -o.y))
+             + texture2D(u_texture, v_texcoord + vec2(-o.x, o.y));
+      gl_FragColor = c * 0.25;
+    }
+  `
+  }
+
+  fsComposite() {
+    return `
+    precision mediump float;
+    uniform sampler2D u_blurred;
+    uniform sampler2D u_gradientSource;
+    uniform vec2 u_sourceSize;
+    uniform vec2 u_gradOrigin;
+    uniform vec2 u_gradSize;
+    uniform vec2 u_resolution;
+    uniform vec2 u_regionSize;
+    uniform float u_margin;
     uniform float u_borderRadius;
+    uniform float u_tintOpacity;
+    uniform float u_isButton;
+    uniform float u_gradientMode;
     uniform float u_warp;
     uniform float u_edgeIntensity;
-    uniform float u_rimIntensity;
     uniform float u_baseIntensity;
-    uniform float u_edgeDistance;
-    uniform float u_rimDistance;
-    uniform float u_baseDistance;
-    uniform float u_cornerBoost;
-    uniform float u_rippleEffect;
-    uniform float u_rippleFrequency;
     uniform float u_strength;
     uniform float u_chroma;
     uniform float u_edgeWidth;
     uniform float u_domeRadius;
     uniform float u_glint;
     uniform float u_glintSharp;
+    uniform float u_cornerBoost;
+    uniform float u_rippleEffect;
+    uniform float u_rippleFrequency;
+    uniform float u_vibrancy;
     varying vec2 v_texcoord;
 
-    // Aave's erf approximation: tanh(√π · x); tanh via exp (GLSL ES 1.00 has no tanh)
+    // Aave's erf approximation: tanh(sqrt(pi) * x); tanh via exp (GLSL ES 1.00 has no tanh)
     float erfApprox(float x) {
       float t = exp(2.0 * 1.7724538509 * x);
       return (t - 1.0) / (t + 1.0);
@@ -663,7 +700,7 @@ class GlassRenderer {
 
     void main() {
       vec2 coord = v_texcoord;
-      vec2 textureCoord = (u_origin + (coord - 0.5) * u_resolution) / u_sourceSize;
+      float gradientPosition = coord.y;
 
       // Signed shape SDF distance (negative inside)
       float distShape;
@@ -675,9 +712,7 @@ class GlassRenderer {
         distShape = roundedRectDistance(coord, u_resolution, u_borderRadius);
       }
 
-      // Aave-style lens displacement:
-      //  - edge band: erf falloff ramps the bend up toward the rim
-      //  - dome: spherical bulge magnifies content through the lens
+      // ---- lens displacement (Aave-style), applied to the blurred region ----
       vec2 pxFromCenter = (coord - 0.5) * u_resolution;
       float r = length(pxFromCenter);
       float minDim = min(u_resolution.x, u_resolution.y);
@@ -694,10 +729,9 @@ class GlassRenderer {
         domeMag = min(domeMag, 6.0);
       }
 
-      // Combined displacement in pixels (toward center = magnification)
       vec2 disp = dir * u_strength * (u_edgeIntensity * edgeI + u_baseIntensity * domeMag);
 
-      // Corner enhancement: extra bend near corners
+      // Corner enhancement
       float cornerProximityX = min(coord.x, 1.0 - coord.x);
       float cornerProximityY = min(coord.y, 1.0 - coord.y);
       float cornerDistance = max(cornerProximityX, cornerProximityY);
@@ -709,123 +743,29 @@ class GlassRenderer {
       float rippleAmt = sin(-distShape / minDim * u_rippleFrequency) * u_rippleEffect * edgeI;
       disp += perpendicular * u_strength * rippleAmt;
 
-      // Chromatic aberration: RGB sampled at slightly different scales
-      vec2 dispUV = disp / u_sourceSize;
-      vec2 uvR = textureCoord + dispUV * (1.0 + u_chroma * 0.2);
-      vec2 uvG = textureCoord + dispUV * (1.0 + u_chroma * 0.1);
-      vec2 uvB = textureCoord + dispUV;
-
-      // Specular glint encoded into alpha (survives the blur as a soft glow).
-      // Direction from the inward lens vector; lit from top-left.
-      vec2 lightDir = normalize(vec2(-0.707, -0.707));
-      float glint = pow(max(dot(-dir, lightDir), 0.0), u_glintSharp) * edgeI * u_glint;
-
-      gl_FragColor = vec4(
-        texture2D(u_source, uvR).r,
-        texture2D(u_source, uvG).g,
-        texture2D(u_source, uvB).b,
-        clamp(0.5 + 0.5 * glint, 0.0, 1.0)
+      // Sample the BLURRED region with lens displacement + chroma split.
+      // Blur happens before displacement (reference ordering), so the RGB
+      // fringing stays crisp instead of being smeared by the frost.
+      vec2 regionUV = (coord * u_resolution + u_margin) / u_regionSize;
+      vec2 dispUV = disp / u_regionSize;
+      vec2 uvR = regionUV + dispUV * (1.0 + u_chroma * 0.2);
+      vec2 uvG = regionUV + dispUV * (1.0 + u_chroma * 0.1);
+      vec2 uvB = regionUV + dispUV;
+      vec4 color = vec4(
+        texture2D(u_blurred, uvR).r,
+        texture2D(u_blurred, uvG).g,
+        texture2D(u_blurred, uvB).b,
+        1.0
       );
-    }
-  `
-  }
-
-  fsKawase() {
-    return `
-    precision mediump float;
-    uniform sampler2D u_texture;
-    uniform vec2 u_offset;
-    varying vec2 v_texcoord;
-    void main() {
-      vec2 o = u_offset;
-      vec4 c = texture2D(u_texture, v_texcoord + o)
-             + texture2D(u_texture, v_texcoord - o)
-             + texture2D(u_texture, v_texcoord + vec2(o.x, -o.y))
-             + texture2D(u_texture, v_texcoord + vec2(-o.x, o.y));
-      gl_FragColor = c * 0.25;
-    }
-  `
-  }
-
-  fsComposite() {
-    return `
-    precision mediump float;
-    uniform sampler2D u_blurred;
-    uniform sampler2D u_gradientSource;
-    uniform vec2 u_sourceSize;
-    uniform vec2 u_gradOrigin;
-    uniform vec2 u_gradSize;
-    uniform vec2 u_resolution;
-    uniform float u_borderRadius;
-    uniform float u_tintOpacity;
-    uniform float u_isButton;
-    uniform float u_gradientMode;
-    uniform float u_glint;
-    uniform float u_glintSharp;
-    uniform float u_vibrancy;
-    varying vec2 v_texcoord;
-
-    float roundedRectDistance(vec2 coord, vec2 size, float radius) {
-      vec2 center = size * 0.5;
-      vec2 pixelCoord = coord * size;
-      vec2 toCorner = abs(pixelCoord - center) - (center - radius);
-      float outsideCorner = length(max(toCorner, 0.0));
-      float insideCorner = min(max(toCorner.x, toCorner.y), 0.0);
-      return (outsideCorner + insideCorner - radius);
-    }
-
-    float circleDistance(vec2 coord, vec2 size, float radius) {
-      vec2 center = vec2(0.5, 0.5);
-      vec2 pixelCoord = coord * size;
-      vec2 centerPixel = center * size;
-      float distFromCenter = length(pixelCoord - centerPixel);
-      return distFromCenter - radius;
-    }
-
-    bool isPill(vec2 size, float radius) {
-      float heightRatioDiff = abs(radius - size.y * 0.5);
-      bool radiusMatchesHeight = heightRatioDiff < 2.0;
-      bool isWiderThanTall = size.x > size.y + 4.0;
-      return radiusMatchesHeight && isWiderThanTall;
-    }
-
-    bool isCircle(vec2 size, float radius) {
-      float minDim = min(size.x, size.y);
-      bool radiusMatchesMinDim = abs(radius - minDim * 0.5) < 1.0;
-      bool isRoughlySquare = abs(size.x - size.y) < 4.0;
-      return radiusMatchesMinDim && isRoughlySquare;
-    }
-
-    float pillDistance(vec2 coord, vec2 size, float radius) {
-      vec2 center = size * 0.5;
-      vec2 pixelCoord = coord * size;
-      vec2 capsuleStart = vec2(radius, center.y);
-      vec2 capsuleEnd = vec2(size.x - radius, center.y);
-      vec2 capsuleAxis = capsuleEnd - capsuleStart;
-      float capsuleLength = length(capsuleAxis);
-      if (capsuleLength > 0.0) {
-        vec2 toPoint = pixelCoord - capsuleStart;
-        float t = clamp(dot(toPoint, capsuleAxis) / dot(capsuleAxis, capsuleAxis), 0.0, 1.0);
-        vec2 closestPointOnAxis = capsuleStart + t * capsuleAxis;
-        return length(pixelCoord - closestPointOnAxis) - radius;
-      } else {
-        return length(pixelCoord - center) - radius;
-      }
-    }
-
-    void main() {
-      vec2 coord = v_texcoord;
-      vec4 color = texture2D(u_blurred, coord);
 
       // Simple vertical gradient
-      float gradientPosition = coord.y;
       vec3 topTint = vec3(1.0, 1.0, 1.0);
       vec3 bottomTint = vec3(0.7, 0.7, 0.7);
       vec3 gradientTint = mix(topTint, bottomTint, gradientPosition);
       vec3 tintedColor = mix(color.rgb, gradientTint, u_tintOpacity);
       color = vec4(tintedColor, color.a);
 
-      // Sampled gradient bands
+      // Sampled gradient bands (raw source)
       float bandOffset = 0.4 * u_resolution.y;
       float topY = (u_gradOrigin.y - bandOffset) / u_gradSize.y;
       float midY = u_gradOrigin.y / u_gradSize.y;
@@ -881,20 +821,12 @@ class GlassRenderer {
       }
 
       // Shape mask
-      float maskDistance;
-      if (isPill(u_resolution, u_borderRadius)) {
-        maskDistance = pillDistance(coord, u_resolution, u_borderRadius);
-      } else if (isCircle(u_resolution, u_borderRadius)) {
-        maskDistance = circleDistance(coord, u_resolution, u_borderRadius);
-      } else {
-        maskDistance = roundedRectDistance(coord, u_resolution, u_borderRadius);
-      }
-      float mask = 1.0 - smoothstep(-1.5, 1.5, maskDistance);
+      float mask = 1.0 - smoothstep(-1.5, 1.5, distShape);
 
       // Adaptive specular glint (Aave): additive on dark backdrops,
-      // multiplicative on bright ones. Glint was baked into the blurred
-      // alpha channel by the refract pass (soft glow after Kawase).
-      float glintAmt = clamp((color.a - 0.5) * 2.0, 0.0, 1.0) * u_glint;
+      // multiplicative on bright ones. Direction from the lens vector.
+      vec2 lightDir = normalize(vec2(-0.707, -0.707));
+      float glintAmt = pow(max(dot(-dir, lightDir), 0.0), u_glintSharp) * edgeI * u_glint;
       float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
       float darkBlend = smoothstep(0.25, 0.65, luma);
       color.rgb = mix(

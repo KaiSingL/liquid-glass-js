@@ -1,19 +1,21 @@
 // Glass Controls System
+// Defaults tuned to match the Amir-Abushanab liquid-glass-js showcase
+// (Aave technique): strong dome + wide edge band, light frost, low tint.
 window.glassControls = {
-  edgeIntensity: 0.8, // edge band refraction strength
-  rimIntensity: 0.5, // specular glint strength
-  baseIntensity: 0.5, // dome magnification strength
-  edgeDistance: 6, // edge band width (px)
-  rimDistance: 4, // glint sharpness
+  edgeIntensity: 1.0, // edge band refraction strength (ref: edge 0.8-1.0)
+  rimIntensity: 0.9, // specular glint strength (ref: glow 0.2 baked + spec 0.9)
+  baseIntensity: 0.6, // dome magnification strength (ref: dome 14)
+  edgeDistance: 20, // edge band width px (ref: depth 20)
+  rimDistance: 2, // glint sharpness exponent (ref: exp 1.5)
   baseDistance: 1.2, // dome radius scale
-  cornerBoost: 0.3,
-  rippleEffect: 0.08,
-  blurRadius: 5.0,
-  tintOpacity: 0.2,
+  cornerBoost: 0.2,
+  rippleEffect: 0, // reference lens has no ripple
+  blurRadius: 2.0, // light frost (ref: blur 2)
+  tintOpacity: 0.12, // near-clear glass (ref: tint 12)
   warp: true, // dome lens enabled by default
-  lensStrength: 14, // overall displacement (px)
-  chroma: 0.4, // chromatic aberration
-  vibrancy: 0.12, // adaptive brightness pull
+  lensStrength: 16, // overall displacement px (ref: strength 16)
+  chroma: 0.3, // chromatic aberration (ref: chroma 0.3)
+  vibrancy: 0.15, // adaptive brightness pull (ref: vibrancy 0.15)
   hideButtons: false
 }
 
@@ -86,10 +88,10 @@ function setupControlSliders() {
 function randomizeGlassEffects() {
   // Generate random values within creative ranges (avoiding extremes)
   const randomValues = {
-    edgeIntensity: 0.2 + Math.random() * 0.8, // edge band 0.2-1.0
-    rimIntensity: 0.1 + Math.random() * 0.9, // glint 0.1-1.0
-    baseIntensity: 0.1 + Math.random() * 0.9, // dome 0.1-1.0
-    edgeDistance: 2 + Math.random() * 14, // edge width 2-16px
+    edgeIntensity: 0.3 + Math.random() * 0.7, // edge band 0.3-1.0
+    rimIntensity: 0.2 + Math.random() * 0.8, // glint 0.2-1.0
+    baseIntensity: 0.2 + Math.random() * 0.8, // dome 0.2-1.0
+    edgeDistance: 4 + Math.random() * 24, // edge width 4-28px
     rimDistance: 1 + Math.random() * 8, // glint sharpness 1-9
     baseDistance: 0.6 + Math.random() * 1.4, // dome radius 0.6-2.0
     cornerBoost: Math.random(), // 0-1
