@@ -27,7 +27,7 @@
 - 📱 **Responsive Design**: Automatic sizing and viewport adaptation
 - 🎨 **Customizable Tinting**: Per-instance opacity and gradient control
 - 🌐 **Cross-browser**: Modern browser support with WebGL
-- 📦 **Zero Dependencies**: Pure JavaScript (except html2canvas for page sampling)
+- 📦 **Zero Dependencies**: Pure JavaScript (html2canvas vendored — works fully offline)
 
 ## 🚀 Quick Start
 
@@ -41,7 +41,8 @@
     <link rel="stylesheet" href="glass.css" />
   </head>
   <body>
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="vendor/html2canvas.min.js"></script>
+    <script src="renderer.js"></script>
     <script src="container.js"></script>
     <script src="button.js"></script>
 
