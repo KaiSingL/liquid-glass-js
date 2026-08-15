@@ -263,16 +263,20 @@ The library provides semantic CSS classes:
 
 ### WebGL Implementation
 
-- **Multi-layer refraction**: Separate edge, rim, and base calculations
-- **Shape-aware normals**: Different algorithms per shape type
-- **Gaussian blur sampling**: 13×13 adaptive kernel
-- **Real-time page capture**: html2canvas integration
-- **Dynamic uniforms**: Live parameter updates
+- **Shared renderer**: One WebGL context for the whole page (renderer.js); every glass element renders into its own FBO and is composited to its DOM canvas — no per-instance contexts, no context-limit issues
+- **Lens-model refraction**: Aave-style dome magnification + erf edge band + corner boost + rim ripple, with chromatic aberration (per-channel RGB split)
+- **Adaptive specular glint**: Additive on dark backdrops, multiplicative on bright ones
+- **Dual Kawase blur**: Half-res downsample + 4 expanding 4-tap passes (replaces the 13×13 inline Gaussian)
+- **Viewport-only page capture**: html2canvas crops the viewport, uploaded straight as a texture (no toDataURL round-trip), re-captured on scroll-out / resize only
+- **Dirty-flag rendering**: Draws only when something changed (scroll, size, controls, DOM mutations), rAF-coalesced
+- **Nested glass**: Children sample the parent's FBO texture on the GPU — zero per-frame canvas readback
+- **Dynamic uniforms**: Live parameter updates without shader recompilation
 
 ### File Structure
 
 ```
 liquid-glass-js/
+├── renderer.js       # GlassRenderer: shared WebGL device, FBOs, blur, capture
 ├── container.js      # Core Container class
 ├── button.js         # Button class (extends Container)
 ├── demo.js          # Demo setup and controls

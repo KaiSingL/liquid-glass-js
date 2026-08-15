@@ -78,43 +78,43 @@
         <h3>🍎 Liquid Glass Controls</h3>
 
         <div class="control-group">
-          <label>Edge Intensity <span class="control-value" id="edgeValue">0.01</span></label>
-          <input type="range" id="edgeIntensity" min="0" max="0.1" step="0.001" value="0.01" />
+          <label>Edge Intensity <span class="control-value" id="edgeValue">0.8</span></label>
+          <input type="range" id="edgeIntensity" min="0" max="1" step="0.01" value="0.8" />
         </div>
 
         <div class="control-group">
-          <label>Rim Intensity <span class="control-value" id="rimValue">0.05</span></label>
-          <input type="range" id="rimIntensity" min="0" max="0.2" step="0.001" value="0.05" />
+          <label>Glint (Rim) <span class="control-value" id="rimValue">0.5</span></label>
+          <input type="range" id="rimIntensity" min="0" max="1" step="0.01" value="0.5" />
         </div>
 
         <div class="control-group">
-          <label>Base Intensity <span class="control-value" id="baseValue">0.01</span></label>
-          <input type="range" id="baseIntensity" min="0" max="0.05" step="0.001" value="0.01" />
+          <label>Dome (Base) <span class="control-value" id="baseValue">0.5</span></label>
+          <input type="range" id="baseIntensity" min="0" max="1" step="0.01" value="0.5" />
         </div>
 
         <div class="control-group">
-          <label>Edge Distance <span class="control-value" id="edgeDistValue">0.15</span></label>
-          <input type="range" id="edgeDistance" min="0.05" max="0.5" step="0.01" value="0.15" />
+          <label>Edge Width <span class="control-value" id="edgeDistValue">6</span></label>
+          <input type="range" id="edgeDistance" min="0" max="20" step="0.5" value="6" />
         </div>
 
         <div class="control-group">
-          <label>Rim Distance <span class="control-value" id="rimDistValue">0.8</span></label>
-          <input type="range" id="rimDistance" min="0.1" max="2.0" step="0.05" value="0.8" />
+          <label>Glint Sharpness <span class="control-value" id="rimDistValue">4</span></label>
+          <input type="range" id="rimDistance" min="0" max="10" step="0.1" value="4" />
         </div>
 
         <div class="control-group">
-          <label>Base Distance <span class="control-value" id="baseDistValue">0.1</span></label>
-          <input type="range" id="baseDistance" min="0.05" max="0.3" step="0.01" value="0.1" />
+          <label>Dome Radius <span class="control-value" id="baseDistValue">1.2</span></label>
+          <input type="range" id="baseDistance" min="0.5" max="2.5" step="0.05" value="1.2" />
         </div>
 
         <div class="control-group">
-          <label>Corner Boost <span class="control-value" id="cornerValue">0.02</span></label>
-          <input type="range" id="cornerBoost" min="0" max="0.1" step="0.001" value="0.02" />
+          <label>Corner Boost <span class="control-value" id="cornerValue">0.3</span></label>
+          <input type="range" id="cornerBoost" min="0" max="1" step="0.01" value="0.3" />
         </div>
 
         <div class="control-group">
-          <label>Ripple Effect <span class="control-value" id="rippleValue">0.1</span></label>
-          <input type="range" id="rippleEffect" min="0" max="0.5" step="0.01" value="0.1" />
+          <label>Ripple Effect <span class="control-value" id="rippleValue">0.08</span></label>
+          <input type="range" id="rippleEffect" min="0" max="0.5" step="0.01" value="0.08" />
         </div>
 
         <div class="control-group">
@@ -128,7 +128,17 @@
         </div>
 
         <div class="control-group">
-          <label> <input type="checkbox" id="warpToggle" /> Enable Center Warp </label>
+          <label>Lens Strength <span class="control-value" id="lensValue">14</span></label>
+          <input type="range" id="lensStrength" min="0" max="30" step="0.5" value="14" />
+        </div>
+
+        <div class="control-group">
+          <label>Chromatic Aberration <span class="control-value" id="chromaValue">0.4</span></label>
+          <input type="range" id="chroma" min="0" max="1" step="0.01" value="0.4" />
+        </div>
+
+        <div class="control-group">
+          <label> <input type="checkbox" id="warpToggle" checked /> Enable Dome Lens </label>
         </div>
 
         <div class="control-group">
@@ -318,6 +328,7 @@
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
     <!-- Liquid Glass JS Library -->
+    <script src="renderer.js"></script>
     <script src="container.js"></script>
     <script src="button.js"></script>
 

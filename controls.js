@@ -1,72 +1,27 @@
 // Glass Controls System
 window.glassControls = {
-  edgeIntensity: 0.01,
-  rimIntensity: 0.05,
-  baseIntensity: 0.01,
-  edgeDistance: 0.15,
-  rimDistance: 0.8,
-  baseDistance: 0.1,
-  cornerBoost: 0.02,
-  rippleEffect: 0.1,
+  edgeIntensity: 0.8, // edge band refraction strength
+  rimIntensity: 0.5, // specular glint strength
+  baseIntensity: 0.5, // dome magnification strength
+  edgeDistance: 6, // edge band width (px)
+  rimDistance: 4, // glint sharpness
+  baseDistance: 1.2, // dome radius scale
+  cornerBoost: 0.3,
+  rippleEffect: 0.08,
   blurRadius: 5.0,
   tintOpacity: 0.2,
-  warp: false,
+  warp: true, // dome lens enabled by default
+  lensStrength: 14, // overall displacement (px)
+  chroma: 0.4, // chromatic aberration
+  vibrancy: 0.12, // adaptive brightness pull
   hideButtons: false
 }
 
-// Update all glass instances with new parameters
+// Update all glass instances with new parameters.
+// GlassRenderer reads window.glassControls fresh on every frame, so a single
+// dirty flag is all that's needed.
 function updateAllGlassInstances() {
-  Container.instances.forEach(instance => {
-    if (instance.gl_refs && instance.gl_refs.gl) {
-      const gl = instance.gl_refs.gl
-      gl.useProgram(gl.getParameter(gl.CURRENT_PROGRAM))
-
-      // Update blur radius
-      if (instance.gl_refs.blurRadiusLoc) {
-        gl.uniform1f(instance.gl_refs.blurRadiusLoc, window.glassControls.blurRadius)
-      }
-
-      // Update glass effect parameters
-      if (instance.gl_refs.edgeIntensityLoc) {
-        gl.uniform1f(instance.gl_refs.edgeIntensityLoc, window.glassControls.edgeIntensity)
-      }
-      if (instance.gl_refs.rimIntensityLoc) {
-        gl.uniform1f(instance.gl_refs.rimIntensityLoc, window.glassControls.rimIntensity)
-      }
-      if (instance.gl_refs.baseIntensityLoc) {
-        gl.uniform1f(instance.gl_refs.baseIntensityLoc, window.glassControls.baseIntensity)
-      }
-      if (instance.gl_refs.edgeDistanceLoc) {
-        gl.uniform1f(instance.gl_refs.edgeDistanceLoc, window.glassControls.edgeDistance)
-      }
-      if (instance.gl_refs.rimDistanceLoc) {
-        gl.uniform1f(instance.gl_refs.rimDistanceLoc, window.glassControls.rimDistance)
-      }
-      if (instance.gl_refs.baseDistanceLoc) {
-        gl.uniform1f(instance.gl_refs.baseDistanceLoc, window.glassControls.baseDistance)
-      }
-      if (instance.gl_refs.cornerBoostLoc) {
-        gl.uniform1f(instance.gl_refs.cornerBoostLoc, window.glassControls.cornerBoost)
-      }
-      if (instance.gl_refs.rippleEffectLoc) {
-        gl.uniform1f(instance.gl_refs.rippleEffectLoc, window.glassControls.rippleEffect)
-      }
-      if (instance.gl_refs.warpLoc) {
-        gl.uniform1f(instance.gl_refs.warpLoc, window.glassControls.warp ? 1.0 : 0.0)
-      }
-      if (instance.gl_refs.tintOpacityLoc) {
-        // Use instance's own tintOpacity, but allow global control to override for demonstration
-        const tintOpacity =
-          instance === window.controlsContainer ? instance.tintOpacity : window.glassControls.tintOpacity
-        gl.uniform1f(instance.gl_refs.tintOpacityLoc, tintOpacity)
-      }
-
-      // Force immediate re-render
-      if (instance.render) {
-        instance.render()
-      }
-    }
-  })
+  GlassRenderer.get().markDirty()
 }
 
 // Set up slider event listeners
@@ -81,7 +36,9 @@ function setupControlSliders() {
     { id: 'cornerBoost', prop: 'cornerBoost', valueId: 'cornerValue' },
     { id: 'rippleEffect', prop: 'rippleEffect', valueId: 'rippleValue' },
     { id: 'blurRadius', prop: 'blurRadius', valueId: 'blurValue' },
-    { id: 'tintOpacity', prop: 'tintOpacity', valueId: 'tintValue' }
+    { id: 'tintOpacity', prop: 'tintOpacity', valueId: 'tintValue' },
+    { id: 'lensStrength', prop: 'lensStrength', valueId: 'lensValue' },
+    { id: 'chroma', prop: 'chroma', valueId: 'chromaValue' }
   ]
 
   sliders.forEach(({ id, prop, valueId }) => {
@@ -129,17 +86,19 @@ function setupControlSliders() {
 function randomizeGlassEffects() {
   // Generate random values within creative ranges (avoiding extremes)
   const randomValues = {
-    edgeIntensity: 0.005 + Math.random() * 0.025, // 0.005 to 0.03
-    rimIntensity: 0.02 + Math.random() * 0.13, // 0.02 to 0.15
-    baseIntensity: 0.005 + Math.random() * 0.025, // 0.005 to 0.03
-    edgeDistance: 0.1 + Math.random() * 0.3, // 0.1 to 0.4
-    rimDistance: 0.3 + Math.random() * 1.2, // 0.3 to 1.5
-    baseDistance: 0.08 + Math.random() * 0.17, // 0.08 to 0.25
-    cornerBoost: 0.01 + Math.random() * 0.05, // 0.01 to 0.06
-    rippleEffect: 0.05 + Math.random() * 0.25, // 0.05 to 0.3
-    blurRadius: 2 + Math.random() * 10, // 2 to 12
-    tintOpacity: 0.1 + Math.random() * 0.7, // 0.1 to 0.8
-    warp: Math.random() < 0.3 // 30% chance
+    edgeIntensity: 0.2 + Math.random() * 0.8, // edge band 0.2-1.0
+    rimIntensity: 0.1 + Math.random() * 0.9, // glint 0.1-1.0
+    baseIntensity: 0.1 + Math.random() * 0.9, // dome 0.1-1.0
+    edgeDistance: 2 + Math.random() * 14, // edge width 2-16px
+    rimDistance: 1 + Math.random() * 8, // glint sharpness 1-9
+    baseDistance: 0.6 + Math.random() * 1.4, // dome radius 0.6-2.0
+    cornerBoost: Math.random(), // 0-1
+    rippleEffect: Math.random() * 0.5, // 0-0.5
+    blurRadius: 2 + Math.random() * 10, // 2-12
+    tintOpacity: 0.1 + Math.random() * 0.7, // 0.1-0.8
+    lensStrength: 4 + Math.random() * 20, // 4-24
+    chroma: Math.random(), // 0-1
+    warp: Math.random() < 0.7 // 70% chance
   }
 
   // Update global controls
@@ -164,7 +123,9 @@ function randomizeGlassEffects() {
         { prop: 'cornerBoost', id: 'cornerBoost', valueId: 'cornerValue' },
         { prop: 'rippleEffect', id: 'rippleEffect', valueId: 'rippleValue' },
         { prop: 'blurRadius', id: 'blurRadius', valueId: 'blurValue' },
-        { prop: 'tintOpacity', id: 'tintOpacity', valueId: 'tintValue' }
+        { prop: 'tintOpacity', id: 'tintOpacity', valueId: 'tintValue' },
+        { prop: 'lensStrength', id: 'lensStrength', valueId: 'lensValue' },
+        { prop: 'chroma', id: 'chroma', valueId: 'chromaValue' }
       ].find(config => config.prop === key)
 
       if (sliderConfig) {
