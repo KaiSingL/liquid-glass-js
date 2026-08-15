@@ -458,6 +458,8 @@ class GlassRenderer {
   }
 
   // Pass 2 — single Dual Kawase iteration (4 taps, expanding offset).
+  // WARNING: ox/oy are in UV units [0..1] (the shader adds them straight to
+  // v_texcoord). Convert pixel radii first: offset = px / textureWidth.
   drawKawase(src, dst, ox, oy) {
     const gl = this.gl
     const program = this.program('kawase', this.vs(), this.fsKawase())
